@@ -1,0 +1,66 @@
+require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+
+platform :ios, '13.0'
+use_frameworks!
+
+# workaround to avoid Xcode caching of Pods that requires
+# Product -> Clean Build Folder after new Cordova plugins installed
+# Requires CocoaPods 1.6 or newer
+install! 'cocoapods', :disable_input_output_paths => true
+
+def capacitor_pods
+  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
+  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
+  pod 'CapacitorCamera', :path => '../../node_modules/@capacitor/camera'
+  pod 'DocumentReaderCapacitor', :path => '../../..'
+end
+
+target 'App' do
+  capacitor_pods
+  # Add your Pods here
+end
+
+post_install do |installer|
+  assertDeploymentTarget(installer)
+
+  # Embed + re-sign device-only docsdk.framework (unsigned Drive copy fails install).
+  frameworks_dir = File.expand_path('../../../ios/Frameworks', __dir__)
+  installer.aggregate_targets.each do |aggregate_target|
+    aggregate_target.user_project.native_targets.each do |target|
+      next unless target.name == 'App'
+
+      phase_name = 'Embed FacePlugin DocSDK'
+      target.shell_script_build_phases.each do |phase|
+        target.build_phases.delete(phase) if phase.name == phase_name
+      end
+
+      phase = target.new_shell_script_build_phase(phase_name)
+      phase.shell_script = <<~SCRIPT
+        set -e
+        if [ "$PLATFORM_NAME" = "iphonesimulator" ]; then
+          echo "note: skipping docsdk.framework embed on simulator (device-only binary)"
+          exit 0
+        fi
+        SRC="#{frameworks_dir}/docsdk.framework"
+        DEST="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+        if [ ! -d "$SRC" ]; then
+          echo "error: Missing docsdk.framework at $SRC"
+          echo "Copy it to ios/Frameworks/docsdk.framework (see root README)."
+          exit 1
+        fi
+        mkdir -p "$DEST"
+        rsync -a --delete "$SRC" "$DEST/"
+        SIGN="${SRCROOT}/scripts/sign_nested_docsdk.sh"
+        if [ ! -f "$SIGN" ]; then
+          echo "error: missing $SIGN"
+          exit 1
+        fi
+        /bin/sh "$SIGN"
+        echo "Embedded and signed docsdk.framework into $DEST"
+      SCRIPT
+      # Run before Codesign / after frameworks copy
+      target.build_phases.move(phase, target.build_phases.size - 1)
+    end
+    aggregate_target.user_project.save
+  end
+end

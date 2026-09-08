@@ -1,0 +1,9 @@
+include ':app'
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+
+// FacePlugin DocumentReader AAR drop-zone for the example
+include ':libdocsdk'
+project(':libdocsdk').projectDir = new File('./libdocsdk')
+
+apply from: 'capacitor.settings.gradle'
